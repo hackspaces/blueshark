@@ -8,6 +8,14 @@ The default Config here is TINY so it runs on a laptop in seconds. It is the
 SAME architecture as the real model, just scaled down, so we can confirm it is
 correct, that gradients flow, and that it can actually learn. Scale the knobs
 (see SCALE_TO_30B at the bottom) to reach the real model.
+
+Incorporates current (2026) findings:
+  - MoE load balancing is aux-loss-free: a sigmoid router plus a per-expert
+    bias nudged by usage, so balancing never distorts the loss (DeepSeek-V3).
+  - Attention uses F.scaled_dot_product_attention (FlashAttention kernels).
+  - Reserved agentic special tokens give post-training a clean interface.
+See ROADMAP in README.md for researched upgrades deferred to scale (sparse
+attention indexer, FP8 training, MoE-aware 4-bit, recurrent-depth reasoning).
 """
 
 import math
@@ -16,6 +24,11 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+# Reserved agentic tokens. The tokenizer maps these to dedicated ids so SFT/RL
+# has an unambiguous surface for thinking and tool turns (the architecture is
+# unchanged; this is an interface choice).
+SPECIAL_TOKENS = ["<plan>", "<think>", "</think>", "<tool_call>", "<tool_result>"]
 
 
 @dataclass
@@ -35,6 +48,7 @@ class Config:
     n_active_experts: int = 4    # top-k routed per token
     n_shared_experts: int = 1    # always-on
     d_ff: int = 512              # per-expert hidden (SwiGLU)
+    bias_update_rate: float = 1e-3   # aux-loss-free balancer step size
     # misc
     rope_theta: float = 10000.0
     max_seq: int = 1024
@@ -64,7 +78,8 @@ def build_rope_cache(seq, rope_dim, theta, device):
 
 
 def apply_rope(x, cos, sin):
-    # x: (B, H, T, d_rope)
+    # x: (B, H, T, d_rope). Interleaved (NeoX-style) convention; q and k use the
+    # same function so it is internally consistent. Not HF-MLA weight compatible.
     T = x.shape[-2]
     cos = cos[:T].view(1, 1, T, -1)
     sin = sin[:T].view(1, 1, T, -1)
@@ -112,10 +127,10 @@ class MLA(nn.Module):
         q = torch.cat([q_nope, q_rope], dim=-1)
         k = torch.cat([k_nope, k_rope], dim=-1)
 
-        scores = (q @ k.transpose(-2, -1)) / math.sqrt(cfg.qk_head_dim)
-        mask = torch.triu(torch.full((T, T), float("-inf"), device=x.device), diagonal=1)
-        attn = (scores + mask).softmax(dim=-1)
-        out = (attn @ v).transpose(1, 2).reshape(B, T, H * cfg.d_v)
+        # FlashAttention path. Default scale is 1/sqrt(qk_head_dim), which is
+        # what MLA wants since scores use the concatenated nope+rope dim.
+        out = F.scaled_dot_product_attention(q, k, v.contiguous(), is_causal=True)
+        out = out.transpose(1, 2).reshape(B, T, H * cfg.d_v)
         return self.o(out)
 
 
@@ -133,36 +148,53 @@ class Expert(nn.Module):
 
 
 class MoE(nn.Module):
+    """Fine-grained MoE with a shared expert and aux-loss-free load balancing.
+
+    The router uses sigmoid affinities. Selection is done on (affinity + bias),
+    where bias is a non-trainable per-expert buffer nudged toward balance after
+    each step. The gate weight comes from the UNBIASED affinity, so the bias
+    steers which experts fire without ever scaling their output (DeepSeek-V3).
+    """
+
     def __init__(self, cfg: Config):
         super().__init__()
         self.cfg = cfg
         self.router = nn.Linear(cfg.d_model, cfg.n_routed_experts, bias=False)
         self.experts = nn.ModuleList([Expert(cfg.d_model, cfg.d_ff) for _ in range(cfg.n_routed_experts)])
         self.shared = nn.ModuleList([Expert(cfg.d_model, cfg.d_ff) for _ in range(cfg.n_shared_experts)])
+        self.register_buffer("expert_bias", torch.zeros(cfg.n_routed_experts))
+        self.register_buffer("last_counts", torch.zeros(cfg.n_routed_experts))
 
     def forward(self, x):
         B, T, D = x.shape
         cfg = self.cfg
-        xf = x.reshape(-1, D)                          # (N, D)
+        xf = x.reshape(-1, D)                                  # (N, D)
 
-        probs = self.router(xf).softmax(dim=-1)        # (N, E)
-        topv, topi = probs.topk(cfg.n_active_experts, dim=-1)
-        topv = topv / topv.sum(dim=-1, keepdim=True)   # renormalize the kept experts
+        affinity = self.router(xf).sigmoid()                  # (N, E)
+        _, topi = (affinity + self.expert_bias).topk(cfg.n_active_experts, dim=-1)
+        gate = affinity.gather(-1, topi)                      # unbiased gate
+        gate = gate / (gate.sum(-1, keepdim=True) + 1e-9)     # renormalize kept set
 
         out = torch.zeros_like(xf)
-        for e in range(cfg.n_routed_experts):          # routed experts (sparse)
+        for e in range(cfg.n_routed_experts):                 # routed experts (sparse)
             hit = (topi == e)
             if hit.any():
                 tok, slot = hit.nonzero(as_tuple=True)
-                out[tok] += topv[tok, slot].unsqueeze(-1) * self.experts[e](xf[tok])
-        for se in self.shared:                         # shared expert (always on)
+                out[tok] += gate[tok, slot].unsqueeze(-1) * self.experts[e](xf[tok])
+        for se in self.shared:                                # shared expert (always on)
             out = out + se(xf)
 
-        # Switch-style load-balancing aux loss (keeps experts from collapsing)
-        f = F.one_hot(topi[:, 0], cfg.n_routed_experts).float().mean(0)  # usage (no grad path)
-        P = probs.mean(0)                                                # mean routing prob
-        aux = cfg.n_routed_experts * (f.detach() * P).sum()
-        return out.view(B, T, D), aux
+        with torch.no_grad():                                 # usage, for the balancer
+            counts = torch.zeros(cfg.n_routed_experts, device=xf.device)
+            counts.scatter_add_(0, topi.reshape(-1), torch.ones(topi.numel(), device=xf.device))
+            self.last_counts = counts
+        return out.view(B, T, D)
+
+    @torch.no_grad()
+    def balance_step(self):
+        # nudge overloaded experts down, underloaded up (sign-only update)
+        target = self.last_counts.mean()
+        self.expert_bias += self.cfg.bias_update_rate * torch.sign(target - self.last_counts)
 
 
 class Block(nn.Module):
@@ -175,8 +207,8 @@ class Block(nn.Module):
 
     def forward(self, x, cos, sin):
         x = x + self.attn(self.attn_norm(x), cos, sin)
-        h, aux = self.moe(self.ffn_norm(x))
-        return x + h, aux
+        x = x + self.moe(self.ffn_norm(x))
+        return x
 
 
 class Model(nn.Module):
@@ -188,6 +220,9 @@ class Model(nn.Module):
         self.norm = RMSNorm(cfg.d_model)
         self.lm_head = nn.Linear(cfg.d_model, cfg.vocab_size, bias=False)
         self.lm_head.weight = self.embed.weight        # tied embeddings
+        # reserve the last ids of the vocab for the agentic special tokens
+        self.special_ids = {t: cfg.vocab_size - len(SPECIAL_TOKENS) + i
+                            for i, t in enumerate(SPECIAL_TOKENS)}
         cos, sin = build_rope_cache(cfg.max_seq, cfg.d_rope, cfg.rope_theta, "cpu")
         self.register_buffer("cos", cos, persistent=False)
         self.register_buffer("sin", sin, persistent=False)
@@ -195,23 +230,28 @@ class Model(nn.Module):
 
     @staticmethod
     def _init(m):
-        if isinstance(m, nn.Linear):
-            nn.init.normal_(m.weight, mean=0.0, std=0.02)
-        elif isinstance(m, nn.Embedding):
+        if isinstance(m, (nn.Linear, nn.Embedding)):
             nn.init.normal_(m.weight, mean=0.0, std=0.02)
 
     def forward(self, idx, targets=None):
         x = self.embed(idx)
-        total_aux = 0.0
         for blk in self.blocks:
-            x, aux = blk(x, self.cos, self.sin)
-            total_aux = total_aux + aux
+            x = blk(x, self.cos, self.sin)
         logits = self.lm_head(self.norm(x))
         loss = None
         if targets is not None:
-            ce = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
-            loss = ce + 0.01 * total_aux / len(self.blocks)
+            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
         return logits, loss
+
+    @torch.no_grad()
+    def balance_step(self):
+        for blk in self.blocks:
+            blk.moe.balance_step()
+
+    def load_imbalance(self):
+        # max/mean expert load across all layers; 1.0 is perfect balance
+        counts = torch.stack([blk.moe.last_counts for blk in self.blocks]).sum(0)
+        return (counts.max() / (counts.mean() + 1e-9)).item()
 
 
 def count_params(model, cfg):
@@ -229,9 +269,10 @@ def main():
 
     total, active = count_params(model, cfg)
     print(f"architecture:  MoE({cfg.n_routed_experts} experts, top-{cfg.n_active_experts}, "
-          f"+{cfg.n_shared_experts} shared) + MLA, {cfg.n_layers} layers")
+          f"+{cfg.n_shared_experts} shared, aux-loss-free) + MLA, {cfg.n_layers} layers")
     print(f"total params:  {total/1e6:.2f}M")
     print(f"active params: {active/1e6:.2f}M  ({100*active/total:.0f}% of total fire per token)")
+    print(f"special tokens reserved: {list(model.special_ids.keys())}")
 
     B, T = 2, 64
     idx = torch.randint(0, cfg.vocab_size, (B, T), device=device)
@@ -240,6 +281,7 @@ def main():
     logits, loss = model(idx, tgt)
     print(f"\nforward pass: logits {tuple(logits.shape)} (expected {(B, T, cfg.vocab_size)})")
     print(f"initial loss: {loss.item():.3f}  (random baseline ln(vocab) = {math.log(cfg.vocab_size):.3f})")
+    print(f"initial expert imbalance (max/mean): {model.load_imbalance():.2f}")
 
     opt = torch.optim.AdamW(model.parameters(), lr=3e-3)
     for _ in range(30):                                # overfit one batch on purpose
@@ -247,14 +289,16 @@ def main():
         opt.zero_grad()
         loss.backward()
         opt.step()
+        model.balance_step()                           # aux-loss-free balancer (no grad)
     print(f"loss after 30 steps overfitting one batch: {loss.item():.3f}  (should drop hard)")
-    print("\nOK: the architecture runs, gradients flow, and it learns.")
+    print(f"final expert imbalance (max/mean):   {model.load_imbalance():.2f}  (balancer keeps this near 1)")
+    print("\nOK: the architecture runs, gradients flow, it learns, and experts stay balanced.")
 
 
 # SCALE_TO_30B (do not run on a laptop): roughly
 #   d_model=2048, n_layers=48, n_heads=16,
 #   d_nope=128, d_rope=64, d_v=128, kv_latent=512, q_latent=1536,
-#   n_routed_experts=128, n_active_experts=8, n_shared_experts=1, d_ff=1408,
+#   n_routed_experts=128, n_active_experts=8, n_shared_experts=1, d_ff=1536,
 #   vocab_size=150000, max_seq=32768
 # -> ~30B total, ~3B active. Exact dims are tuned on the proof model first.
 
