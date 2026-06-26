@@ -410,3 +410,26 @@ _CHECKS = [
 )
 
 TASKS = [UPI, GST, AADHAAR, IFSC, PAN, MOBILE]
+
+# ---------------------------------------------------------------------------
+# Additional tasks (authored and verified in a batch) live in tasks_batch.json
+# so the code strings escape cleanly. Their test_program omits the shared footer;
+# we append _FOOTER here, exactly as the inline tasks above do.
+# ---------------------------------------------------------------------------
+import json as _json
+import os as _os
+
+_BATCH = _os.path.join(_os.path.dirname(__file__), "tasks_batch.json")
+if _os.path.exists(_BATCH):
+    with open(_BATCH, encoding="utf-8") as _f:
+        for _t in _json.load(_f):
+            TASKS.append(Task(
+                task_id=_t["task_id"],
+                domain=_t["domain"],
+                title=_t["title"],
+                entry_point=_t["entry_point"],
+                prompt=_t["prompt"],
+                reference_solution=_t["reference_solution"],
+                naive_solution=_t["naive_solution"],
+                test_program=_t["test_program"] + _FOOTER,
+            ))
