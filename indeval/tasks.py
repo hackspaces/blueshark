@@ -244,4 +244,169 @@ _CHECKS = [
 ''' + _FOOTER,
 )
 
-TASKS = [UPI, GST, AADHAAR]
+# ===========================================================================
+# TASK 4 — IFSC code validator (5th character reserved '0')
+# ===========================================================================
+IFSC = Task(
+    task_id="ifsc_validate",
+    domain="ifsc",
+    title="Validate an Indian bank IFSC code",
+    entry_point="is_valid_ifsc",
+    prompt=(
+        "Write a Python function `is_valid_ifsc(ifsc)` returning True/False for whether a string "
+        "is a valid Indian IFSC (Indian Financial System Code).\n\n"
+        "An IFSC is exactly 11 characters: the first 4 are uppercase letters (the bank code), the "
+        "5th character is ALWAYS '0' (reserved by RBI for future use), and the last 6 characters are "
+        "alphanumeric (the branch code). A correct validator must enforce the reserved '0', not just "
+        "the overall shape."
+    ),
+    reference_solution='''
+import re
+def is_valid_ifsc(ifsc):
+    if not isinstance(ifsc, str) or len(ifsc) != 11:
+        return False
+    return bool(re.fullmatch(r"[A-Z]{4}0[A-Z0-9]{6}", ifsc))
+''',
+    # Plausible but wrong: allows any character in the 5th slot.
+    naive_solution='''
+import re
+def is_valid_ifsc(ifsc):
+    return bool(re.fullmatch(r"[A-Z]{4}[A-Z0-9]{7}", ifsc or ""))
+''',
+    test_program='''
+def t_valid():
+    for s in ["HDFC0001234", "SBIN0000456", "ICIC0000123"]:
+        assert is_valid_ifsc(s) is True, ("should be valid: " + s)
+def t_fifth_is_zero():
+    assert is_valid_ifsc("HDFC1001234") is False, "5th char must be the reserved 0"
+def t_length():
+    assert is_valid_ifsc("HDFC000123") is False
+def t_lowercase():
+    assert is_valid_ifsc("hdfc0001234") is False
+def t_bank_letters():
+    assert is_valid_ifsc("HD1C0001234") is False
+_CHECKS = [
+    ("accepts valid IFSC", t_valid),
+    ("5th char must be 0", t_fifth_is_zero),
+    ("rejects wrong length", t_length),
+    ("rejects lowercase", t_lowercase),
+    ("bank code must be letters", t_bank_letters),
+]
+''' + _FOOTER,
+)
+
+# ===========================================================================
+# TASK 5 — PAN validator (4th character is the holder-type code)
+# ===========================================================================
+PAN = Task(
+    task_id="pan_validate",
+    domain="pan",
+    title="Validate a PAN including the holder-type character",
+    entry_point="is_valid_pan",
+    prompt=(
+        "Write a Python function `is_valid_pan(pan)` returning True/False for whether a string is a "
+        "valid Indian PAN (Permanent Account Number).\n\n"
+        "A PAN is 10 characters: 5 uppercase letters, then 4 digits, then 1 uppercase letter. "
+        "Crucially, the 4th character encodes the type of holder and must be one of "
+        "P, C, H, A, B, G, J, L, F, T (e.g. P for individual, C for company, F for firm, T for trust). "
+        "A correct validator must check that 4th character, not merely the letter/digit shape."
+    ),
+    reference_solution='''
+import re
+_PAN_TYPES = set("PCHABGJLFT")
+def is_valid_pan(pan):
+    if not isinstance(pan, str) or len(pan) != 10:
+        return False
+    if not re.fullmatch(r"[A-Z]{5}[0-9]{4}[A-Z]", pan):
+        return False
+    return pan[3] in _PAN_TYPES
+''',
+    # Plausible but wrong: checks the shape but not the holder-type character.
+    naive_solution='''
+import re
+def is_valid_pan(pan):
+    return bool(re.fullmatch(r"[A-Z]{5}[0-9]{4}[A-Z]", pan or ""))
+''',
+    test_program='''
+def t_valid():
+    for s in ["ABCPK1234L", "XYZCA9876B", "AAAFA1234H"]:
+        assert is_valid_pan(s) is True, ("should be valid: " + s)
+def t_holder_type():
+    assert is_valid_pan("ABCXK1234L") is False, "4th char X is not a valid holder type"
+def t_length():
+    assert is_valid_pan("ABCPK1234") is False
+def t_shape():
+    assert is_valid_pan("ABC1K1234L") is False
+def t_lowercase():
+    assert is_valid_pan("abcpk1234l") is False
+_CHECKS = [
+    ("accepts valid PAN", t_valid),
+    ("rejects invalid holder type", t_holder_type),
+    ("rejects wrong length", t_length),
+    ("rejects malformed shape", t_shape),
+    ("rejects lowercase", t_lowercase),
+]
+''' + _FOOTER,
+)
+
+# ===========================================================================
+# TASK 6 — Indian mobile number validator (prefix normalization + start digit)
+# ===========================================================================
+MOBILE = Task(
+    task_id="mobile_validate",
+    domain="mobile",
+    title="Validate an Indian mobile number after normalizing prefixes",
+    entry_point="is_valid_mobile",
+    prompt=(
+        "Write a Python function `is_valid_mobile(num)` returning True/False for whether a string is a "
+        "valid Indian mobile number.\n\n"
+        "Rules: the number may carry a country/trunk prefix you must strip first: a leading '+91', "
+        "'0091', or a single leading '0'. After stripping, what remains must be exactly 10 digits, and "
+        "the first of those 10 digits must be 6, 7, 8, or 9 (Indian mobile series). A correct validator "
+        "must normalize the prefix AND enforce the start digit, not just check for 10 digits."
+    ),
+    reference_solution='''
+def is_valid_mobile(num):
+    if not isinstance(num, str):
+        return False
+    s = num.strip().replace(" ", "").replace("-", "")
+    if s.startswith("+91"):
+        s = s[3:]
+    elif s.startswith("0091"):
+        s = s[4:]
+    elif s.startswith("0") and len(s) == 11:
+        s = s[1:]
+    if not (s.isdigit() and len(s) == 10):
+        return False
+    return s[0] in "6789"
+''',
+    # Plausible but wrong: just checks ten digits, no prefix handling, no start-digit rule.
+    naive_solution='''
+import re
+def is_valid_mobile(num):
+    return bool(re.fullmatch(r"[0-9]{10}", num or ""))
+''',
+    test_program='''
+def t_valid_plain():
+    for s in ["9876543210", "6012345678", "7000000000"]:
+        assert is_valid_mobile(s) is True, ("should be valid: " + s)
+def t_valid_prefixed():
+    assert is_valid_mobile("+919876543210") is True, "must accept and strip +91"
+    assert is_valid_mobile("09876543210") is True, "must accept a leading trunk 0"
+def t_start_digit():
+    assert is_valid_mobile("5876543210") is False, "Indian mobile numbers start 6-9"
+def t_length():
+    assert is_valid_mobile("98765") is False
+def t_nondigit():
+    assert is_valid_mobile("98765abcde") is False
+_CHECKS = [
+    ("accepts valid 10-digit", t_valid_plain),
+    ("normalizes +91 / 0 prefix", t_valid_prefixed),
+    ("enforces start digit 6-9", t_start_digit),
+    ("rejects wrong length", t_length),
+    ("rejects non-digits", t_nondigit),
+]
+''' + _FOOTER,
+)
+
+TASKS = [UPI, GST, AADHAAR, IFSC, PAN, MOBILE]
