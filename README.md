@@ -89,6 +89,8 @@ python3 -m indeval.run_demo
 
 No model or GPU needed: it grades a correct reference (100%, 94/94) against a format-only naive solution (~54%), and confirms all sixteen tasks discriminate. Point `indeval/run_eval.py` at any OpenAI-compatible endpoint to score a real model.
 
+Submitted code runs **sandboxed** (stdlib only, POSIX): an isolated temp working directory, a stripped environment and isolated interpreter, OS resource limits (CPU, memory, file size, no core dumps, process cap), an injected network kill, and process-group termination on timeout. It is hardened, not a hard boundary; for grading fully adversarial models in the open, wrap it in a container or nsjail as an outer layer (the hooks are there).
+
 ## License
 
 MIT
