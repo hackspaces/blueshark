@@ -46,7 +46,9 @@ uv pip install torch tokenizers numpy
 .venv/bin/python eval.py      # scaling study: does the architecture improve with size
 ```
 
-`model.py` prints the MoE split, a starting loss near ln(vocab) (correct init), and the loss collapsing on one batch (it learns). `train.py` trains a byte-level BPE tokenizer we train ourselves and a ~16M model end to end on the GPU (MPS). `eval.py` trains a ladder of sizes and fits a power law to check the architecture scales.
+`model.py` prints the MoE split, a starting loss near ln(vocab) (correct init), and the loss collapsing on one batch (it learns). `train.py` trains a byte-level BPE tokenizer we train ourselves and a ~16M model end to end. `eval.py` trains a ladder of sizes and fits a power law to check the architecture scales.
+
+Device is auto-detected and runs across **NVIDIA (CUDA), Apple Silicon (MPS), or plain CPU**. `indeval` needs only the Python standard library (no torch, no GPU) and `indeval/run_eval.py` grades any model behind an OpenAI-compatible endpoint, so it runs anywhere.
 
 ## Scope
 

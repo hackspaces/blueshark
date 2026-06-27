@@ -42,6 +42,9 @@ def get_tokenizer():
 
 
 def get_device():
+    # runs across NVIDIA (cuda), Apple Silicon (mps), or plain CPU
+    if torch.cuda.is_available():
+        return "cuda"
     if torch.backends.mps.is_available():
         return "mps"
     return "cpu"

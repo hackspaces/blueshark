@@ -108,7 +108,9 @@ def main():
         rows.append((params, tr_bpb, v_bpb))
         print(f"{params/1e6:9.1f}M {tr_bpb:10.3f} {v_bpb:9.3f} {v_ppl:9.1f} {acc*100:7.1f}%  ({time.time()-t0:.0f}s)")
         del model
-        if device == "mps":
+        if device == "cuda":
+            torch.cuda.empty_cache()
+        elif device == "mps":
             torch.mps.empty_cache()
 
     # Fit the power law on TRAIN bits/byte (capacity). On a small corpus, val is
