@@ -29,6 +29,19 @@ PRESETS = {
             d_ff=256, max_seq=256,
         ),
     },
+    # --- the coherence run: narrow domain (Python) + every validated lever ---
+    "coherent": {
+        "name": "Coherent · ~100M MoE+MLA, recurrence 2",
+        "blurb": "scaled for genuine coherence on a NARROW (Python-only) corpus: d=512, 8 layers x recurrence 2 = 16 effective, 8 experts top-2, seq 1024. The rented-GPU run.",
+        "ckpt": "viz_ckpt_coherent.pt",
+        "kwargs": dict(
+            d_model=512, n_layers=8, n_heads=8,
+            d_nope=64, d_rope=32, d_v=64, kv_latent=256, q_latent=512,
+            n_routed_experts=8, n_active_experts=2, n_shared_experts=1,
+            d_ff=1024, max_seq=1024, recurrence=2,
+        ),
+    },
+
     # --- experiment presets (aggressive arch bets) ---
     "recur3": {
         "name": "Recurrent-depth · 4 layers looped 3x",
