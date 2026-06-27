@@ -149,6 +149,7 @@ def main():
     ap.add_argument("--eval-every", type=int, default=200)
     ap.add_argument("--save-every", type=int, default=500)
     ap.add_argument("--resume", action="store_true")
+    ap.add_argument("--init", default="", help="warm-start weights from this checkpoint (e.g. a pretrained base before SFT)")
     args = ap.parse_args()
 
     os.makedirs(args.out, exist_ok=True)
@@ -161,6 +162,13 @@ def main():
     if args.seq > cfg.max_seq:
         args.seq = cfg.max_seq
     model = Model(cfg).to(device)
+
+    if args.init and os.path.exists(args.init):
+        ck = torch.load(args.init, map_location=device)
+        sd = ck.get("model", ck.get("state_dict", ck))
+        model.load_state_dict(sd)
+        log.log(f"warm-started from {args.init}")
+
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, betas=(0.9, 0.95), weight_decay=args.wd)
 
     start_step, best_val = 0, float("inf")
