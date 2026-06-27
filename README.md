@@ -1,10 +1,29 @@
 # Blueshark
 
-Reference architecture for a sovereign agentic coding model. Fine-grained Mixture-of-Experts with an always-on shared expert (DeepSeek-style) and Multi-head Latent Attention (MLA). The 2026 frontier recipe, implemented small enough to run and verify on a laptop.
+Reference architecture **and working training stack** for a sovereign agentic
+coding model. Fine-grained Mixture-of-Experts with an always-on shared expert
+(DeepSeek-style) and Multi-head Latent Attention (MLA) — the 2026 frontier
+recipe, implemented small enough to run, **train, visualize, and experiment with
+on a laptop or a single rented GPU**.
 
-## What this is
+> **New here / resuming work?** Read [STATUS.md](STATUS.md) first — it's the
+> current state, the findings, and the next action in one page.
 
-`model.py` is the model definition: MLA attention (via FlashAttention / `scaled_dot_product_attention`), fine-grained MoE routing with a shared expert and aux-loss-free load balancing (sigmoid router + per-expert bias, DeepSeek-V3 style), SwiGLU experts, RMSNorm, RoPE, tied embeddings, and reserved agentic special tokens. The default config is tiny so it runs on CPU in seconds. It is the same architecture as the full model, just scaled down.
+## What's in the box
+
+| Piece | What it is |
+|---|---|
+| `model.py` | the architecture: MLA attention (FlashAttention `scaled_dot_product_attention`), fine-grained MoE (shared expert + aux-loss-free sigmoid-router balancing, DeepSeek-V3 style), SwiGLU experts, RMSNorm, RoPE, tied embeddings, reserved agentic tokens, and **optional weight-tied recurrent depth** |
+| `configs.py` | model-size presets: `proof`, `finegrained`, `recur3`, `deep8`, `coherent` |
+| `pipeline/` | the real training stack: trajectory parser → tokenizer → packed-shard tokenizer → **streamed masked-SFT trainer** (warmup+cosine, eval, checkpoint/resume, `--init` warm-start, structured logging) |
+| `viz/` | a zero-dependency **live activation viewer** — watch attention, MoE routing, the residual stream, and generation, with a config switcher |
+| `indeval/` | execution-graded India-context eval (16 tasks) — the benchmark and the future RL reward env |
+| `colab/` | a ready Colab notebook for the whole train loop |
+
+Docs: [STATUS.md](STATUS.md) · [RUNS.md](RUNS.md) (every run + eval) ·
+[EXPERIMENTS.md](EXPERIMENTS.md) (arch bets) · [MODELS.md](MODELS.md) (checkpoint
+registry) · [PLAN_COHERENCE.md](PLAN_COHERENCE.md) (the next run) ·
+[ARCHITECTURE.md](ARCHITECTURE.md) (MLA/MoE internals)
 
 ## Architecture
 
@@ -13,6 +32,7 @@ flowchart TD
   A[token ids] --> B[Embedding]
   B --> C[Block 1]
   C --> D[Block 2 ... Block N]
+  D -. "weight-tied recurrence (optional): rerun the stack K times" .-> B
   D --> E[RMSNorm]
   E --> F[LM head, weight tied to embedding]
   F --> G[logits]
@@ -37,26 +57,55 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the MLA and MoE internals.
 
 ## Run
 
-```
+```bash
 uv venv --python 3.11
-uv pip install torch tokenizers numpy
-.venv/bin/python model.py     # sanity check: builds, learns, experts stay balanced
-.venv/bin/python corpus.py    # build a small good-quality corpus from the local stdlib
-.venv/bin/python train.py     # train our own BPE tokenizer + a sub-1B model on the Mac GPU
-.venv/bin/python eval.py      # scaling study: does the architecture improve with size
+uv pip install torch tokenizers numpy pyarrow
+
+# 1. sanity-check the architecture (builds, learns, experts stay balanced)
+.venv/bin/python model.py
+
+# 2. the live activation viewer (open http://127.0.0.1:7860)
+.venv/bin/python viz/server.py
+
+# 3. the training pipeline (parse agentic traces -> pack -> masked SFT)
+.venv/bin/python pipeline/parse_swe_trajectories.py
+.venv/bin/python pipeline/tokenize_pack.py --sft data/sft/swe_agentic_sft.jsonl --name swe_sft
+.venv/bin/python pipeline/train.py --data swe_sft --config proof --out runs/sft --steps 2000
 ```
 
-`model.py` prints the MoE split, a starting loss near ln(vocab) (correct init), and the loss collapsing on one batch (it learns). `train.py` trains a byte-level BPE tokenizer we train ourselves and a ~16M model end to end. `eval.py` trains a ladder of sizes and fits a power law to check the architecture scales.
+Device is auto-detected across **NVIDIA (CUDA), Apple Silicon (MPS), or CPU**.
+The trainer streams from memory-mapped token shards (corpus never needs to fit in
+RAM), computes loss only on masked (model-turn) tokens for SFT, and logs to
+`metrics.jsonl` (+ TensorBoard if installed). `--init <ckpt>` warm-starts SFT from
+a pretrained base; `--resume` survives a dropped session.
 
-Device is auto-detected and runs across **NVIDIA (CUDA), Apple Silicon (MPS), or plain CPU**. `indeval` needs only the Python standard library (no torch, no GPU) and `indeval/run_eval.py` grades any model behind an OpenAI-compatible endpoint, so it runs anywhere.
+## Results so far
 
-## Scope
+Built end to end and validated on free/cheap compute (full log in [RUNS.md](RUNS.md)):
 
-This is a working reference: the architecture, a tokenizer we train ourselves, a small training loop on the Mac GPU, and an eval system. It is not the full model: there is no distributed-training stack or large-scale data pipeline yet. Those are what scale and compute buy.
+- **pretrain → SFT works** — code-pretrain then masked SFT cut val loss **3.17 → 2.31**.
+- **Recurrent depth wins** — `recurrence=K` reruns the block stack K times for K×
+  effective depth at **zero extra params**. recur3 (12 effective layers) hit
+  **val 2.84 vs 3.58** for the 4-layer baseline at identical params.
+- **Data-bound, not arch-bound** — more steps on too little data overfits; quality
+  comes from data + training.
+- **Narrow domain → coherence** — broad multilingual code made a tiny model produce
+  mush; the path to a coherent small model is a *narrow* (Python-only) corpus
+  (TinyStories logic). That's the next run.
 
-## Scale
+The live viewer makes all of this visible: per-layer attention maps, which experts
+each token routes to, the residual stream growing through depth, and autoregressive
+generation (with a repetition penalty).
 
-The same code scales to roughly 30B total and 3B active by widening the model, adding depth, and raising the expert count (see the SCALE_TO_30B note in `model.py`). Exact dimensions are tuned on a small proof model first.
+## Scope & scale
+
+This is a working reference: architecture, a tokenizer we train ourselves, a
+streamed training pipeline, a visualizer, and an eval system. It is **not** the
+full model — there is no distributed-training stack yet. The same code scales to
+roughly **30B total / 3B active** by widening, deepening, and raising the expert
+count (see `SCALE_TO_30B` in `model.py`); dimensions are tuned on the small proof
+model first. The immediate target is a small but genuinely coherent Python model —
+[PLAN_COHERENCE.md](PLAN_COHERENCE.md).
 
 ## India-context eval (indeval)
 
