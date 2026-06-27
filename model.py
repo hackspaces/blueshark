@@ -52,6 +52,9 @@ class Config:
     # misc
     rope_theta: float = 10000.0
     max_seq: int = 1024
+    recurrence: int = 1   # weight-tied recursion: run the block stack this many
+                          # times for recurrence x n_layers EFFECTIVE depth at no
+                          # extra params (TRM-style recurrent depth). 1 = standard.
 
     @property
     def qk_head_dim(self) -> int:
@@ -235,8 +238,9 @@ class Model(nn.Module):
 
     def forward(self, idx, targets=None):
         x = self.embed(idx)
-        for blk in self.blocks:
-            x = blk(x, self.cos, self.sin)
+        for _ in range(self.cfg.recurrence):      # weight-tied recurrent depth
+            for blk in self.blocks:
+                x = blk(x, self.cos, self.sin)
         logits = self.lm_head(self.norm(x))
         loss = None
         if targets is not None:

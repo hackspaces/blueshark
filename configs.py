@@ -29,6 +29,29 @@ PRESETS = {
             d_ff=256, max_seq=256,
         ),
     },
+    # --- experiment presets (aggressive arch bets) ---
+    "recur3": {
+        "name": "Recurrent-depth · 4 layers looped 3x",
+        "blurb": "weight-tied recursion: 4 layers run 3x = 12 effective layers at the SAME params, seq 512. TRM-style depth-via-recursion bet.",
+        "ckpt": "viz_ckpt_recur3.pt",
+        "kwargs": dict(
+            d_model=256, n_layers=4, n_heads=4,
+            d_nope=32, d_rope=16, d_v=32, kv_latent=128, q_latent=256,
+            n_routed_experts=8, n_active_experts=2, n_shared_experts=1,
+            d_ff=512, max_seq=512, recurrence=3,
+        ),
+    },
+    "deep8": {
+        "name": "Deep · 8 real layers",
+        "blurb": "conventional depth: 8 stacked layers (more params), seq 512. The control for the recurrence bet.",
+        "ckpt": "viz_ckpt_deep8.pt",
+        "kwargs": dict(
+            d_model=256, n_layers=8, n_heads=4,
+            d_nope=32, d_rope=16, d_v=32, kv_latent=128, q_latent=256,
+            n_routed_experts=8, n_active_experts=2, n_shared_experts=1,
+            d_ff=512, max_seq=512, recurrence=1,
+        ),
+    },
 }
 
 DEFAULT = "proof"
