@@ -59,9 +59,11 @@ def recompute_moe(moe, x):
 
 
 @torch.no_grad()
-def gen_tokens(model, ids, n, temp, topk):
+def gen_tokens(model, ids, n, temp, topk, rep_penalty=1.3, rep_window=128):
     """Autoregressively sample n tokens. Returns (full_ids, steps) where each
-    step is {id, prob} for the token that was chosen."""
+    step is {id, prob} for the token that was chosen. A repetition penalty
+    divides the logits of recently-emitted tokens (CTRL-style), which stops the
+    degenerate loops small/undertrained models fall into."""
     model.eval()
     cfg = model.cfg
     out = list(ids)
@@ -69,7 +71,13 @@ def gen_tokens(model, ids, n, temp, topk):
     for _ in range(n):
         x = torch.tensor([out[-cfg.max_seq:]], dtype=torch.long)
         logits, _ = model(x)
-        logits = logits[0, -1] / max(temp, 1e-5)
+        logits = logits[0, -1].clone()
+        if rep_penalty and rep_penalty != 1.0:
+            for tid in set(out[-rep_window:]):
+                logits[tid] /= rep_penalty if logits[tid] > 0 else 1.0
+                if logits[tid] <= 0:
+                    logits[tid] *= rep_penalty
+        logits = logits / max(temp, 1e-5)
         probs = logits.softmax(-1)
         if topk and topk > 0:
             v, i = probs.topk(min(topk, probs.numel()))
