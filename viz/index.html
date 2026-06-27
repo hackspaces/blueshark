@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>blueshark · live architecture</title>
+<style>
+  :root{
+    --bg:#0a0e14; --panel:#111722; --panel2:#0d121b; --line:#1e2733;
+    --ink:#e6edf3; --dim:#7d8896; --accent:#22d3ee; --accent2:#3b82f6;
+    --warn:#f59e0b; --good:#34d399;
+    --mono:"SF Mono",ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+       font-size:14px;line-height:1.45}
+  a{color:var(--accent)}
+  header{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;
+         padding:14px 20px;border-bottom:1px solid var(--line);
+         background:linear-gradient(180deg,#0d1420,#0a0e14)}
+  header h1{font-size:16px;margin:0;letter-spacing:.5px}
+  header h1 b{color:var(--accent)}
+  .chips{display:flex;gap:6px;flex-wrap:wrap}
+  .chip{font-family:var(--mono);font-size:11px;color:var(--dim);
+        background:var(--panel);border:1px solid var(--line);
+        padding:2px 8px;border-radius:20px}
+  .chip b{color:var(--ink);font-weight:600}
+  .badge{font-family:var(--mono);font-size:11px;padding:2px 9px;border-radius:20px;font-weight:600}
+  .badge.trained{background:rgba(52,211,153,.12);color:var(--good);border:1px solid rgba(52,211,153,.4)}
+  .badge.random{background:rgba(245,158,11,.12);color:var(--warn);border:1px solid rgba(245,158,11,.4)}
+
+  .controls{display:flex;gap:10px;padding:14px 20px;align-items:center;
+            border-bottom:1px solid var(--line);flex-wrap:wrap}
+  #cfg{background:var(--panel);border:1px solid var(--line);color:var(--ink);
+       font-family:var(--mono);font-size:12px;padding:10px 10px;border-radius:8px;cursor:pointer}
+  #cfg:focus{outline:none;border-color:var(--accent2)}
+  #prompt{flex:1;min-width:280px;background:var(--panel);border:1px solid var(--line);
+          color:var(--ink);font-family:var(--mono);font-size:13px;
+          padding:10px 12px;border-radius:8px;outline:none}
+  #prompt:focus{border-color:var(--accent2)}
+  button#run{background:var(--accent2);color:#fff;border:0;font-weight:600;
+        padding:10px 18px;border-radius:8px;cursor:pointer;font-size:13px}
+  button#run:hover{background:#2f6ae0}
+  button#run:disabled{opacity:.5;cursor:wait}
+  .hint{color:var(--dim);font-size:12px;font-family:var(--mono)}
+  button#gen-btn{background:transparent;color:var(--accent);border:1px solid var(--accent);
+        font-weight:600;padding:10px 14px;border-radius:8px;cursor:pointer;font-size:13px}
+  button#gen-btn:hover{background:rgba(34,211,238,.1)}
+  button#gen-btn:disabled{opacity:.5;cursor:wait}
+  .ctl{font-family:var(--mono);font-size:11px;color:var(--dim);display:flex;align-items:center;gap:4px}
+  .ctl input{width:46px;background:var(--panel);border:1px solid var(--line);color:var(--ink);
+        font-family:var(--mono);font-size:12px;padding:6px;border-radius:6px}
+  .genbox{margin:14px 20px 0;background:var(--panel);border:1px solid var(--accent);
+        border-radius:10px;padding:14px 16px}
+  .genbox:empty{display:none}
+  .genhead{font-family:var(--mono);font-size:11px;color:var(--accent);text-transform:uppercase;
+        letter-spacing:.5px;margin-bottom:10px}
+  .genstream{font-family:var(--mono);font-size:13.5px;line-height:1.85;white-space:pre-wrap;word-break:break-word}
+  .gtok{border-radius:3px}
+  .gtok.prompt{color:var(--dim)}
+  .gtok.gen{color:#a5f3fc;background:rgba(34,211,238,.10)}
+  .gtok.special{color:#f0abfc;background:rgba(217,70,239,.16)}
+  .gcaret{color:var(--accent);animation:blink 1s steps(2) infinite}
+  @keyframes blink{50%{opacity:0}}
+
+  .wrap{display:grid;grid-template-columns:340px 1fr;gap:0;height:calc(100vh - 132px)}
+  .flow{overflow-y:auto;padding:16px;border-right:1px solid var(--line);background:var(--panel2)}
+  .detail{overflow-y:auto;padding:20px 24px}
+
+  .stage{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+         padding:10px 12px;margin:0 auto;position:relative}
+  .stage .title{font-family:var(--mono);font-size:12px;color:var(--dim);
+                display:flex;justify-content:space-between;align-items:center}
+  .stage .title b{color:var(--ink)}
+  .arrow{height:18px;display:flex;justify-content:center;align-items:center;color:var(--line)}
+  .arrow svg{width:14px;height:18px}
+  .block{padding:8px 10px}
+  .sub{display:flex;gap:8px;margin-top:8px}
+  .op{flex:1;border:1px solid var(--line);border-radius:8px;padding:7px 9px;cursor:pointer;
+      background:var(--panel2);transition:border-color .12s,background .12s}
+  .op:hover{border-color:var(--accent2)}
+  .op.sel{border-color:var(--accent);background:rgba(34,211,238,.07)}
+  .op .lab{font-family:var(--mono);font-size:11px;color:var(--accent)}
+  .op .meta{font-size:10px;color:var(--dim);margin-top:2px}
+  .loadmini{display:flex;gap:2px;height:18px;margin-top:5px;align-items:flex-end}
+  .loadmini i{flex:1;background:var(--accent2);border-radius:1px;min-height:2px;opacity:.8}
+
+  .tokrow{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+  .tok{font-family:var(--mono);font-size:11px;background:var(--panel2);
+       border:1px solid var(--line);padding:2px 6px;border-radius:5px;white-space:pre}
+  .tok .i{color:var(--dim);font-size:9px;margin-right:3px}
+  .tok.special{background:rgba(217,70,239,.13);border-color:#d946ef;color:#f5d0fe}
+  .special-k{color:#e879f9 !important}
+  .qinsert{display:flex;gap:6px;align-items:center;flex-wrap:wrap;
+           padding:8px 20px 0;border-bottom:0}
+  .qinsert .lbl{font-size:11px;color:var(--dim);font-family:var(--mono)}
+  .qchip{font-family:var(--mono);font-size:11px;cursor:pointer;
+         background:rgba(217,70,239,.1);border:1px solid #6b2178;color:#f0abfc;
+         padding:3px 9px;border-radius:6px}
+  .qchip:hover{background:rgba(217,70,239,.22)}
+
+  h2{font-size:14px;margin:0 0 4px;letter-spacing:.3px}
+  .desc{color:var(--dim);font-size:12.5px;margin:0 0 16px;max-width:760px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+         padding:18px;margin-bottom:18px}
+  .panel h3{font-size:12px;font-family:var(--mono);color:var(--accent);margin:0 0 12px;
+            text-transform:uppercase;letter-spacing:.6px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+  .tab{font-family:var(--mono);font-size:12px;padding:4px 11px;border-radius:6px;cursor:pointer;
+       background:var(--panel2);border:1px solid var(--line);color:var(--dim)}
+  .tab.sel{color:var(--ink);border-color:var(--accent);background:rgba(34,211,238,.08)}
+
+  canvas{display:block;image-rendering:pixelated}
+  .tip{position:fixed;pointer-events:none;background:#000;border:1px solid var(--accent);
+       color:var(--ink);font-family:var(--mono);font-size:11px;padding:4px 7px;border-radius:5px;
+       z-index:50;display:none;white-space:pre}
+  .legend{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11px;color:var(--dim);margin-top:8px}
+  .ramp{height:10px;width:140px;border-radius:3px;
+        background:linear-gradient(90deg,#0a0e14,#0e2a3a,#155e75,#0891b2,#22d3ee,#a5f3fc)}
+
+  table.bars{border-collapse:collapse;width:100%}
+  table.bars td{padding:3px 6px;font-family:var(--mono);font-size:12px;vertical-align:middle}
+  table.bars td.k{color:var(--dim);text-align:right;white-space:nowrap;width:1%}
+  .bar{height:16px;border-radius:3px;background:linear-gradient(90deg,var(--accent2),var(--accent))}
+  td.v{color:var(--dim);white-space:nowrap;width:1%}
+
+  .expgrid{overflow-x:auto}
+  .loadbars{display:flex;gap:6px;align-items:flex-end;height:90px;margin-top:6px}
+  .loadbars .e{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;min-width:34px}
+  .loadbars .e .b{width:100%;background:linear-gradient(180deg,var(--accent),var(--accent2));border-radius:3px 3px 0 0;min-height:2px}
+  .loadbars .e .lab{font-family:var(--mono);font-size:10px;color:var(--dim)}
+  .meanline{font-family:var(--mono);font-size:11px;color:var(--warn)}
+  .empty{color:var(--dim);font-style:italic;padding:40px 0;text-align:center}
+  .note{font-size:12px;color:var(--dim);margin-top:10px;border-left:2px solid var(--line);padding-left:10px}
+  .note b{color:var(--ink)}
+</style>
+</head>
+<body>
+<header>
+  <h1><b>blueshark</b> · live architecture</h1>
+  <div class="chips" id="meta"></div>
+  <span id="trained"></span>
+</header>
+
+<div class="controls">
+  <select id="cfg" title="architecture config"></select>
+  <input id="prompt" value="def add(a, b):" spellcheck="false"
+         placeholder="type a prompt and press Run...">
+  <button id="run">Run forward pass</button>
+  <button id="gen-btn">Generate ▸</button>
+  <label class="ctl">len <input id="gen-n" type="number" value="40" min="1" max="80"></label>
+  <label class="ctl">temp <input id="gen-t" type="number" value="0.8" step="0.1" min="0.05" max="2"></label>
+  <label class="ctl">top-k <input id="gen-k" type="number" value="40" min="0" max="200"></label>
+  <span class="hint" id="status"></span>
+</div>
+<div class="qinsert" id="qinsert"><span class="lbl">insert agentic token:</span></div>
+<div class="genbox" id="gen"></div>
+
+<div class="wrap">
+  <div class="flow" id="flow"></div>
+  <div class="detail" id="detail">
+    <div class="empty">Run a forward pass to see activations flow through the network.</div>
+  </div>
+</div>
+<div class="tip" id="tip"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+let META=null, DATA=null, CURCFG=null, SEL={kind:"attn", layer:0, head:0};
+
+// ---- color ramp: 0..1 -> dark -> cyan ----
+function ramp(t){
+  t = Math.max(0, Math.min(1, t));
+  const stops = [[10,14,20],[14,42,58],[21,94,117],[8,145,178],[34,211,238],[165,243,252]];
+  const x = t*(stops.length-1), i = Math.floor(x), f = x-i;
+  const a = stops[i], b = stops[Math.min(i+1, stops.length-1)];
+  const c = a.map((v,k)=>Math.round(v+(b[k]-v)*f));
+  return `rgb(${c[0]},${c[1]},${c[2]})`;
+}
+
+async function loadConfigs(){
+  const list = await (await fetch('/configs')).json();
+  const sel = $('#cfg');
+  sel.innerHTML = list.map(c=>
+    `<option value="${c.id}">${c.name}${c.trained?'':'  (untrained)'}</option>`).join('');
+  CURCFG = list[0].id; sel.value = CURCFG;
+  sel.onchange = ()=>selectConfig(sel.value);
+  await selectConfig(CURCFG);
+}
+
+async function selectConfig(id){
+  CURCFG = id;
+  SEL = {kind:"attn", layer:0, head:0};
+  await loadMeta(id);
+  run();
+}
+
+async function loadMeta(cfgId){
+  META = await (await fetch('/meta?config='+encodeURIComponent(cfgId))).json();
+  const m = META;
+  $('#meta').innerHTML = [
+    `<span class="chip" style="border-color:#2f6ae0;color:#cfe0ff">${m.blurb}</span>`,
+    `<span class="chip"><b>${(m.total_params/1e6).toFixed(1)}M</b> params</span>`,
+    `<span class="chip"><b>${(m.active_params/1e6).toFixed(1)}M</b> active</span>`,
+    `<span class="chip">MoE <b>${m.n_routed_experts}</b> experts · top-<b>${m.n_active_experts}</b> · +${m.n_shared_experts} shared</span>`,
+    `<span class="chip">MLA · <b>${m.n_heads}</b> heads</span>`,
+    `<span class="chip"><b>${m.n_layers}</b> layers · d=<b>${m.d_model}</b></span>`,
+    `<span class="chip">vocab <b>${m.vocab_size}</b></span>`,
+  ].join('');
+  $('#trained').innerHTML = m.trained
+    ? `<span class="badge trained">trained weights</span>`
+    : `<span class="badge random">random init · shows mechanism</span>`;
+  // quick-insert chips for the agentic control tokens (same across configs, build once)
+  const qi = $('#qinsert');
+  if(!qi.dataset.built){
+    m.special_tokens.forEach(t=>{
+      const c=document.createElement('span'); c.className='qchip'; c.textContent=t;
+      c.onclick=()=>{ const p=$('#prompt'); p.value+=t; p.focus(); };
+      qi.appendChild(c);
+    });
+    qi.dataset.built='1';
+  }
+}
+
+async function run(){
+  const btn = $('#run'); btn.disabled = true;
+  $('#status').textContent = 'running forward pass...';
+  try{
+    const r = await fetch('/infer',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({text:$('#prompt').value, config:CURCFG})});
+    DATA = await r.json();
+    if(DATA.error){ $('#status').textContent = 'error: '+DATA.error; return; }
+    $('#status').textContent = `${DATA.n_tokens} tokens` + (DATA.truncated?` (truncated to ${DATA.n_tokens})`:'');
+    renderFlow(); renderDetail();
+  } finally { btn.disabled = false; }
+}
+
+async function generate(){
+  const btn=$('#gen-btn'); btn.disabled=true; $('#status').textContent='generating...';
+  try{
+    const body={text:$('#prompt').value, config:CURCFG,
+      n:+$('#gen-n').value, temp:+$('#gen-t').value, topk:+$('#gen-k').value};
+    const r=await fetch('/generate',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(body)});
+    const g=await r.json();
+    if(g.error){ $('#status').textContent='error: '+g.error; return; }
+    renderGen(g);
+  } finally { btn.disabled=false; }
+}
+
+let GENTIMER=null;
+function renderGen(g){
+  clearTimeout(GENTIMER);
+  const box=$('#gen');
+  const avg = g.gen.length ? g.gen.reduce((s,t)=>s+t.prob,0)/g.gen.length : 0;
+  box.innerHTML =
+    `<div class="genhead">completion · ${g.gen.length} tokens · temp ${g.temp} · top-k ${g.topk} · avg confidence ${(avg*100).toFixed(0)}%</div>
+     <div class="genstream"><span class="gtok prompt">${esc(g.prompt_text)}</span><span id="genins"></span><span class="gcaret">▋</span></div>
+     <div class="note">Confidence = brightness; hover a token for its probability. ${$('#cfg').selectedOptions[0].text} ·
+       small model — read it as code <i>texture</i>, not correct programs.</div>`;
+  const ins=$('#genins'); let i=0;
+  (function step(){
+    if(i>=g.gen.length){ const c=box.querySelector('.gcaret'); if(c) c.remove(); $('#status').textContent='done'; return; }
+    const t=g.gen[i++];
+    const s=document.createElement('span');
+    s.className='gtok gen'+(t.special?' special':'');
+    s.style.opacity=Math.max(0.4, Math.min(1, t.prob+0.15));
+    s.title='p('+JSON.stringify(t.text)+') = '+t.prob.toFixed(3);
+    s.textContent=t.text;
+    ins.appendChild(s);
+    GENTIMER=setTimeout(step, 40);
+  })();
+}
+
+// ---- left flow column ----
+function renderFlow(){
+  const f = $('#flow'); f.innerHTML='';
+  const arrow = `<div class="arrow"><svg viewBox="0 0 14 18"><path d="M7 0 L7 13 M3 9 L7 13 L11 9" stroke="currentColor" stroke-width="1.5" fill="none"/></svg></div>`;
+
+  // tokens
+  const toks = DATA.tokens.map((t,i)=>`<span class="tok${t.special?' special':''}"><span class="i">${i}</span>${esc(t.label)}</span>`).join('');
+  f.insertAdjacentHTML('beforeend',
+    `<div class="stage"><div class="title"><b>Input tokens</b><span>${DATA.n_tokens}</span></div>
+       <div class="tokrow">${toks}</div></div>${arrow}`);
+
+  // embedding
+  f.insertAdjacentHTML('beforeend',
+    `<div class="stage"><div class="title"><b>Token embedding</b><span>d=${META.d_model}</span></div></div>${arrow}`);
+
+  // blocks
+  DATA.layers.forEach(L=>{
+    const maxc = Math.max(1, ...L.counts);
+    const mini = L.counts.map(c=>`<i style="height:${Math.round(100*c/maxc)}%"></i>`).join('');
+    const heads = META.n_heads, experts = META.n_routed_experts;
+    const attnSel = (SEL.kind==='attn'&&SEL.layer===L.layer)?'sel':'';
+    const moeSel  = (SEL.kind==='moe' &&SEL.layer===L.layer)?'sel':'';
+    f.insertAdjacentHTML('beforeend',
+      `<div class="stage block"><div class="title"><b>Block ${L.layer}</b><span>residual</span></div>
+        <div class="sub">
+          <div class="op ${attnSel}" data-k="attn" data-l="${L.layer}">
+            <div class="lab">MLA attention</div><div class="meta">${heads} heads · causal</div></div>
+          <div class="op ${moeSel}" data-k="moe" data-l="${L.layer}">
+            <div class="lab">MoE routing</div><div class="meta">top-${META.n_active_experts} of ${experts}</div>
+            <div class="loadmini">${mini}</div></div>
+        </div></div>${arrow}`);
+  });
+
+  // output
+  const top = DATA.predictions[0];
+  f.insertAdjacentHTML('beforeend',
+    `<div class="stage op ${SEL.kind==='out'?'sel':''}" data-k="out" data-l="0">
+       <div class="title"><b>Output · next token</b><span>argmax</span></div>
+       <div class="tokrow"><span class="tok" style="border-color:var(--accent)">${esc(top.label)} · ${(top.prob*100).toFixed(1)}%</span></div></div>`);
+
+  f.querySelectorAll('.op').forEach(o=>o.onclick=()=>{
+    SEL={kind:o.dataset.k, layer:+o.dataset.l, head:SEL.head};
+    renderFlow(); renderDetail();
+  });
+}
+
+// ---- right detail panel ----
+function renderDetail(){
+  if(!DATA) return;
+  const d = $('#detail');
+  if(SEL.kind==='attn') d.innerHTML = viewAttn(SEL.layer);
+  else if(SEL.kind==='moe') d.innerHTML = viewMoE(SEL.layer);
+  else d.innerHTML = viewOut();
+  d.innerHTML += viewResidual();
+  d.innerHTML += viewAgentic();
+  if(SEL.kind==='attn') drawAttn(SEL.layer);
+  bindTips();
+}
+
+function viewAttn(li){
+  const heads = META.n_heads;
+  const tabs = Array.from({length:heads},(_,h)=>
+    `<span class="tab ${h===SEL.head?'sel':''}" data-h="${h}">head ${h}</span>`).join('')
+    + `<span class="tab ${SEL.head===-1?'sel':''}" data-h="-1">mean</span>`;
+  setTimeout(()=>document.querySelectorAll('.tab[data-h]').forEach(t=>t.onclick=()=>{
+    SEL.head=+t.dataset.h; renderDetail();
+  }),0);
+  return `<h2>Block ${li} · MLA self-attention</h2>
+    <p class="desc">Each query token (row) distributes attention over the key tokens it can see (columns).
+    Lower-triangular because attention is causal: a token never attends to the future.
+    Multi-head Latent Attention compresses keys/values through a ${META.kv_latent}-dim latent before this.</p>
+    <div class="panel"><h3>Attention map · layer ${li}</h3>
+      <div class="row">${tabs}</div>
+      <canvas id="attncv"></canvas>
+      <div class="legend">low <span class="ramp"></span> high attention weight &nbsp;·&nbsp; rows = query, cols = key</div>
+    </div>`;
+}
+
+function drawAttn(li){
+  const L = DATA.layers[li], T = DATA.n_tokens;
+  let M;
+  if(SEL.head===-1){ // mean across heads
+    M = L.attn[0].map((row,i)=>row.map((_,j)=>
+      L.attn.reduce((s,h)=>s+h[i][j],0)/L.attn.length));
+  } else M = L.attn[SEL.head];
+  const cv = $('#attncv'); if(!cv) return;
+  const pad=80, cell=Math.max(10, Math.min(30, Math.floor(420/T)));
+  const W=pad+T*cell, H=pad+T*cell;
+  const dpr=window.devicePixelRatio||1;
+  cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
+  const c=cv.getContext('2d'); c.scale(dpr,dpr); c.clearRect(0,0,W,H);
+  c.font='10px monospace'; c.textBaseline='middle';
+  const labels = DATA.tokens.map(t=>t.label.slice(0,6));
+  for(let i=0;i<T;i++){
+    for(let j=0;j<T;j++){
+      c.fillStyle = j>i ? '#0a0e14' : ramp(M[i][j]);
+      c.fillRect(pad+j*cell, pad+i*cell, cell-1, cell-1);
+    }
+  }
+  // row labels (query)
+  c.fillStyle='#7d8896'; c.textAlign='right';
+  for(let i=0;i<T;i++) if(cell>=11||i%2===0) c.fillText(labels[i], pad-6, pad+i*cell+cell/2);
+  // col labels (key) rotated
+  c.textAlign='left';
+  for(let j=0;j<T;j++) if(cell>=11||j%2===0){
+    c.save(); c.translate(pad+j*cell+cell/2, pad-6); c.rotate(-Math.PI/2.5);
+    c.fillText(labels[j], 0, 0); c.restore();
+  }
+  cv._info={M,T,pad,cell,labels};
+  cv.onmousemove=e=>{
+    const r=cv.getBoundingClientRect();
+    const x=e.clientX-r.left-pad, y=e.clientY-r.top-pad;
+    const j=Math.floor(x/cell), i=Math.floor(y/cell);
+    const tip=$('#tip');
+    if(i>=0&&i<T&&j>=0&&j<=i){
+      tip.style.display='block'; tip.style.left=(e.clientX+12)+'px'; tip.style.top=(e.clientY+12)+'px';
+      tip.textContent=`q[${i}] "${labels[i]}" → k[${j}] "${labels[j]}"\nweight ${M[i][j].toFixed(3)}`;
+    } else tip.style.display='none';
+  };
+  cv.onmouseleave=()=>$('#tip').style.display='none';
+}
+
+function viewMoE(li){
+  const L = DATA.layers[li], T=DATA.n_tokens, E=META.n_routed_experts, k=META.n_active_experts;
+  const mean = L.counts.reduce((a,b)=>a+b,0)/E;
+  const maxc = Math.max(1,...L.counts);
+  const bars = L.counts.map((c,e)=>{
+    const h = Math.round(80*c/maxc);
+    return `<div class="e" title="expert ${e}: ${c} tokens">
+      <div class="b" style="height:${h}px"></div><div class="lab">e${e}</div><div class="lab">${c}</div></div>`;
+  }).join('');
+
+  // routing grid: rows tokens, cols experts, opacity = gate weight
+  let grid = `<table class="bars" style="border-collapse:separate;border-spacing:2px"><tr><td class="k"></td>`;
+  for(let e=0;e<E;e++) grid+=`<td class="k">e${e}</td>`; grid+='</tr>';
+  for(let t=0;t<T;t++){
+    const sp=DATA.tokens[t].special?' special-k':'';
+    grid+=`<tr><td class="k${sp}">${esc(DATA.tokens[t].label.slice(0,8))}</td>`;
+    const sel={}; L.topi[t].forEach((e,s)=>sel[e]=L.gate[t][s]);
+    for(let e=0;e<E;e++){
+      if(e in sel){
+        const g=sel[e];
+        grid+=`<td><div style="height:15px;border-radius:3px;background:${ramp(0.3+0.7*g)}"
+          title="token ${t} → expert ${e}, gate ${g.toFixed(3)}"></div></td>`;
+      } else grid+=`<td><div style="height:15px;border-radius:3px;background:#0d121b;border:1px solid #1e2733"></div></td>`;
+    }
+    grid+='</tr>';
+  }
+  grid+='</table>';
+
+  return `<h2>Block ${li} · Mixture-of-Experts routing</h2>
+    <p class="desc">For every token the router scores all ${E} experts and sends it to its top ${k}.
+    The gate weight (cell brightness) blends their outputs. One shared expert runs on every token regardless.
+    The aux-loss-free balancer nudges a per-expert bias so load stays even without distorting the loss.</p>
+    <div class="panel"><h3>Expert load · layer ${li}</h3>
+      <div class="loadbars">${bars}</div>
+      <div class="meanline">— mean load ${mean.toFixed(1)} tokens/expert · max/mean ${(maxc/mean).toFixed(2)} (1.0 = perfect balance)</div>
+      <div class="note"><b>Shared expert:</b> always on for all ${T} tokens (not shown in the grid).</div>
+    </div>
+    <div class="panel"><h3>Per-token routing · which experts fire</h3>
+      <div class="expgrid">${grid}</div>
+      <div class="legend">gate weight: low <span class="ramp"></span> high</div>
+    </div>`;
+}
+
+function viewOut(){
+  const max = DATA.predictions[0].prob;
+  const rows = DATA.predictions.map(p=>`
+    <tr><td class="k${p.special?' special-k':''}">${esc(p.label)}</td>
+      <td><div class="bar" style="width:${Math.max(2,100*p.prob/max)}%"></div></td>
+      <td class="v">${(p.prob*100).toFixed(2)}%</td></tr>`).join('');
+  return `<h2>Output · next-token prediction</h2>
+    <p class="desc">After the final RMSNorm, the tied embedding (lm_head) projects the last token's
+    hidden state to a distribution over the ${META.vocab_size}-token vocabulary. Top 12 candidates:</p>
+    <div class="panel"><h3>P(next token)</h3><table class="bars">${rows}</table></div>`;
+}
+
+function viewResidual(){
+  // heatmap: rows = embed,L0..Ln (after MoE), cols = tokens ; value = norm
+  const T=DATA.n_tokens;
+  const rows=[{name:'embed',v:DATA.embed_norm}];
+  DATA.layers.forEach(L=>rows.push({name:'L'+L.layer, v:L.after_moe_norm}));
+  let lo=Infinity, hi=-Infinity;
+  rows.forEach(r=>r.v.forEach(x=>{lo=Math.min(lo,x);hi=Math.max(hi,x)}));
+  const cells=rows.map(r=>{
+    const tds=r.v.map((x,t)=>{
+      const tn=(x-lo)/(hi-lo+1e-9);
+      return `<td><div style="height:16px;border-radius:2px;background:${ramp(tn)}"
+        title="${r.name} · token ${t}: ‖h‖=${x.toFixed(2)}"></div></td>`;
+    }).join('');
+    return `<tr><td class="k">${r.name}</td>${tds}</tr>`;
+  }).join('');
+  return `<div class="panel"><h3>Residual stream · hidden-state norm ‖h‖ growing through depth</h3>
+    <table class="bars" style="border-collapse:separate;border-spacing:2px">${cells}</table>
+    <div class="legend">small <span class="ramp"></span> large ‖h‖ &nbsp;·&nbsp; rows = depth (embed → top), cols = tokens</div></div>`;
+}
+
+function viewAgentic(){
+  const roles = {
+    "<plan>":"open a planning span",
+    "<think>":"open a private reasoning span (can be hidden from the user)",
+    "</think>":"close the reasoning span",
+    "<tool_call>":"signal a tool call — generation halts here",
+    "<tool_result>":"harness injects tool output back, then generation resumes",
+  };
+  // any special tokens present in the current sequence?
+  const present = new Set(DATA.tokens.filter(t=>t.special).map(t=>t.label));
+  const rows = META.special_tokens.map(t=>{
+    const here = present.has(t) ? ` style="background:rgba(217,70,239,.08)"` : "";
+    return `<tr${here}><td class="k special-k">${esc(t)}</td>
+      <td class="v">id ${META.special_ids[t]}</td>
+      <td style="color:var(--dim)">${roles[t]||""}</td></tr>`;
+  }).join('');
+  return `<div class="panel"><h3>Agentic interface · reserved control tokens</h3>
+    <p class="desc" style="margin-bottom:12px">These are ordinary vocabulary ids — they flow through the same
+    embedding → MLA → MoE → logits path as any token (no special code path). They give post-training (SFT/RL)
+    an unambiguous surface. <b style="color:var(--ink)">Pretraining alone won't make the model use them;</b>
+    that behaviour is learned later. Tokens present in your prompt are highlighted.</p>
+    <table class="bars">${rows}</table>
+    <div class="note" style="margin-top:14px">
+      <b>The agentic loop is one token stream:</b> thinking is just more autoregressive tokens.
+      The only place control leaves the model is <span class="special-k">&lt;tool_call&gt;</span> →
+      generation stops → the harness runs the tool → writes <span class="special-k">&lt;tool_result&gt;</span>…
+      back into context → generation continues. The model emits a pattern; the harness acts on it.
+    </div></div>`;
+}
+
+function bindTips(){
+  document.querySelectorAll('[title]').forEach(el=>{
+    el.addEventListener('mousemove',e=>{
+      const tip=$('#tip'); tip.style.display='block';
+      tip.style.left=(e.clientX+12)+'px'; tip.style.top=(e.clientY+12)+'px';
+      tip.textContent=el.getAttribute('title');
+    });
+    el.addEventListener('mouseleave',()=>$('#tip').style.display='none');
+  });
+}
+
+function esc(s){return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+
+$('#run').onclick=run;
+$('#gen-btn').onclick=generate;
+$('#prompt').addEventListener('keydown',e=>{if(e.key==='Enter')run();});
+loadConfigs();
+</script>
+</body>
+</html>
