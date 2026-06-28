@@ -58,8 +58,12 @@ def load_model(pid):
     ckpt = os.path.join(ROOT, "data", PRESETS[pid]["ckpt"])
     trained = os.path.exists(ckpt)
     if trained:
-        sd = torch.load(ckpt, map_location="cpu")
-        model.load_state_dict(sd["state_dict"] if "state_dict" in sd else sd)
+        try:
+            sd = torch.load(ckpt, map_location="cpu")
+            model.load_state_dict(sd["state_dict"] if "state_dict" in sd else sd)
+        except Exception as e:  # e.g. vocab/shape mismatch vs the current tokenizer
+            print(f"  '{pid}': checkpoint incompatible ({e.__class__.__name__}), using random init")
+            trained = False
     model.eval()
 
     total = sum(p.numel() for p in model.parameters())

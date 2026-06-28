@@ -102,7 +102,10 @@ def run_capture(model, ids):
     embed_norm = x[0].norm(dim=-1).tolist()
 
     layers = []
-    for li, blk in enumerate(model.blocks):
+    # honor weight-tied recurrence: the stack runs cfg.recurrence times, so the
+    # flow shows n_layers * recurrence effective passes (matches model.forward)
+    blocks = list(model.blocks) * getattr(cfg, "recurrence", 1)
+    for li, blk in enumerate(blocks):
         nx = blk.attn_norm(x)
         attn_probs = recompute_attention(blk.attn, nx, cos, sin)   # (H, T, T)
         x = x + blk.attn(nx, cos, sin)
