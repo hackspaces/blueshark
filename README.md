@@ -18,6 +18,7 @@ on a laptop or a single rented GPU**.
 | `pipeline/` | the real training stack: trajectory parser → tokenizer → packed-shard tokenizer → **streamed masked-SFT trainer** (warmup+cosine, eval, checkpoint/resume, `--init` warm-start, structured logging) |
 | `viz/` | a zero-dependency **live activation viewer** — watch attention, MoE routing, the residual stream, and generation, with a config switcher |
 | `indeval/` | execution-graded India-context eval (16 tasks) — the benchmark and the future RL reward env |
+| `datagen/` | verified India-context **SFT-data engine**: a teacher (Claude/API/open model) solves generated tasks read→reason→act→verify, and only trajectories that pass the `indeval` rule-check are kept. Every row is verified correct |
 | `colab/` | a ready Colab notebook for the whole train loop |
 
 Docs: [STATUS.md](STATUS.md) · [RUNS.md](RUNS.md) (every run + eval) ·
