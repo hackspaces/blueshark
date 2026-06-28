@@ -69,6 +69,31 @@ The original TRM grid-puzzle caveat stands, but the recursion *mechanism* transf
 
 ---
 
+## Reference: gemma-4-12B-agentic (yuxinlu1, HF GGUF) — validates our direction
+
+A one-person fine-tune of **Gemma 4 12B** into an agentic coder. Almost every
+choice matches blueshark, which is reassuring:
+- **Recipe = ours.** Agentic tool-use trajectories + **verified CoT over Python
+  gated on passing tests** + general reasoning, all on a strong pretrained base.
+- **think + native tool-call format** mirrors our `<think>/<tool_call>/<tool_result>`.
+- **Repetition penalty 1.1 "critical — without it, repeating 0000..."** —
+  independent confirmation of our decoding fix, *at 12B*. Not a small-model crutch.
+- **tau2-bench telecom: base ~15% → ~55% (3.5×); frontier 90%+.** A realistic bar
+  for a specialized small model. The moat is data + post-training, not the arch —
+  exactly the sovereign thesis.
+
+Things to adopt (parked):
+- **tau2-bench** as an agentic eval alongside `indeval` (indeval = India-context
+  correctness; tau2 = general agentic tool-use). Concrete target: ~55% for a
+  specialized small model.
+- **Verified-CoT gated on tests** — their filter == our indeval-as-verifiable-reward
+  thesis, in practice. Use for SFT data filtering AND the RL reward.
+- **GGUF + llama.cpp / Ollama** — once blueshark is bigger, export to GGUF
+  (Q4_K_M sweet spot) for efficient local inference on Yash's hardware. (Viewer =
+  internals; GGUF = usable local runs.)
+- **MTP / speculative decoding** — multi-token-prediction draft for ~1.2-1.3×
+  lossless speedup (Gemma 4 ships one). Inference-speed lever, not training-time.
+
 <!-- template for the next paper:
 ## NAME — (org, arXiv:XXXX)
 **What it is.** ...
