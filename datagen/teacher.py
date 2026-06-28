@@ -10,10 +10,14 @@ model has licensing implications. Confirm Anthropic's usage policy before relyin
 this at scale; the backend is swappable (an open model like Qwen can be the teacher too).
 """
 import json
+import logging
 import os
 import re
 import subprocess
+import time
 import urllib.request
+
+log = logging.getLogger("datagen.teacher")
 
 TEACHER_PROMPT = """You are an expert Indian software engineer writing a high-quality worked \
 example that will teach a smaller model how to do this task correctly.
@@ -73,7 +77,21 @@ class ClaudeCodeTeacher:
         cmd = [self.bin, "-p", full]
         if self.model:
             cmd += ["--model", self.model]
-        out = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        log.info("[claude-code] -> domain=%s model=%s entry=%s prompt=%d chars",
+                 domain, self.model or "default", entry_point, len(full))
+        log.info("[claude-code] >>> PROMPT >>>\n%s\n<<< end prompt", full)
+        t0 = time.time()
+        try:
+            out = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        except Exception as e:
+            log.error("[claude-code] domain=%s subprocess FAILED: %s", domain, e)
+            raise
+        dt = time.time() - t0
+        log.info("[claude-code] <- domain=%s done in %.1fs rc=%d stdout=%d chars stderr=%d chars",
+                 domain, dt, out.returncode, len(out.stdout), len(out.stderr))
+        if out.stderr.strip():
+            log.warning("[claude-code] domain=%s stderr: %s", domain, out.stderr.strip()[:800])
+        log.info("[claude-code] <<< RESPONSE <<<\n%s\n<<< end response", out.stdout.strip()[:6000])
         return out.stdout
 
 

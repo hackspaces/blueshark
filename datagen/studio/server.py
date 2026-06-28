@@ -12,6 +12,7 @@ Run:
 Working set persists to data/datagen/studio.jsonl across restarts.
 """
 import json
+import logging
 import os
 import re
 import sys
@@ -37,6 +38,15 @@ _SYSTEM = ("You are a careful Indian software engineer. Reason step by step "
            "(read, reason, act, verify), then give a single correct Python function.")
 
 os.makedirs(os.path.dirname(WORK), exist_ok=True)
+
+LOG_PATH = os.path.join(ROOT, "data", "datagen", "studio.log")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout), logging.FileHandler(LOG_PATH)],
+)
+log = logging.getLogger("studio")
+
 ROWS = [json.loads(l) for l in open(WORK)] if os.path.exists(WORK) else []
 GEN = {"running": False, "teacher": None, "attempted": 0, "kept": 0, "total": 0,
        "by_domain": {}, "log": [], "error": None}
@@ -93,7 +103,9 @@ def run_generation(domains, n, teacher, teacher_name):
                             reference_solution="", naive_solution="")
                 res = grade(task, code)
                 if not res.solved:
-                    GEN["log"].append(f"{d}: dropped (failed rule check {res.passed}/{res.total})")
+                    msg = f"{d}: dropped (failed rule check {res.passed}/{res.total})"
+                    GEN["log"].append(msg)
+                    log.info("GEN [-] %s", msg)
                     continue
                 with LOCK:
                     ROWS.append({
@@ -108,10 +120,15 @@ def run_generation(domains, n, teacher, teacher_name):
                     persist()
                 GEN["kept"] += 1
                 GEN["by_domain"][d]["kept"] += 1
+                log.info("GEN [+] %s kept (verified %d/%d) — total kept %d/%d",
+                         d, res.passed, res.total, GEN["kept"], GEN["attempted"])
     except Exception as e:
         GEN["error"] = str(e)
+        log.error("GENERATE error: %s", e)
     finally:
         GEN["running"] = False
+        log.info("GENERATE finished: kept %d / %d (teacher=%s)",
+                 GEN["kept"], GEN["attempted"], GEN["teacher"])
 
 
 def summary():
@@ -133,8 +150,8 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def log_message(self, *a):
-        pass
+    def log_message(self, fmt, *args):
+        log.info("HTTP %s", fmt % args)
 
     def do_GET(self):
         if self.path in ("/", "/index.html"):
@@ -159,6 +176,8 @@ class Handler(BaseHTTPRequestHandler):
             n = max(1, min(int(p.get("n", 3)), 100))
             tname = p.get("teacher", "mock")
             teacher = make_teacher(tname, p.get("model", ""))
+            log.info("GENERATE start: teacher=%s model=%s domains=%s n=%d (total %d tasks)",
+                     tname, p.get("model", "") or "default", domains, n, len(domains) * n)
             threading.Thread(target=run_generation, args=(domains, n, teacher, tname),
                              daemon=True).start()
             self._send(200, json.dumps({"started": True}))
