@@ -51,6 +51,11 @@ def build_dataset(teacher, n_per_domain=5, domains=None, seed=0, out_path="train
                 ],
                 "verified": True,
                 "checks": f"{result.passed}/{result.total}",
+                # provenance + re-verification info (used by the human-review tool)
+                "source": "teacher",        # -> "human-edited" once a human changes it
+                "status": "pending_review", # -> "approved" | "rejected"
+                "entry_point": entry_point,
+                "test_program": test_program,
             })
 
     with open(out_path, "w") as f:

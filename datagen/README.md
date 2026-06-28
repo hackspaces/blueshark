@@ -42,6 +42,25 @@ Output is standard chat-format JSONL (system / user / assistant) ready for SFT w
 Unsloth or TRL. Loss is taken on the assistant turn (the read->reason->act->verify
 trajectory + the verified solution).
 
+## Human review — make it not "all Claude"
+
+Generation gives you a *starting* dataset; the human-review tool turns it into a
+**curated** one. A reviewer reads each trajectory, edits the reasoning/code (adding
+the long-tail Indian edge cases the teacher misses), and approves or rejects it.
+Edits are **re-graded against the real indeval rule**, so a human can improve a
+trajectory but can't silently break its correctness. Every row tracks provenance
+(`teacher` vs `human-edited`).
+
+```bash
+python build_dataset.py --teacher claude-code --n 50 --out train.jsonl   # 1. generate
+python -m datagen.review.server train.jsonl                              # 2. review at http://127.0.0.1:7861
+python -m datagen.export train.jsonl --out train.clean.jsonl             # 3. export approved + provenance %
+```
+
+The export prints the human-touched vs raw-teacher split, so the dataset's
+composition is auditable. Mixing in genuinely human-authored / documentation-sourced
+rows (not just edits) further shifts it away from pure distillation.
+
 ## Design notes a panel will respect
 
 - **Contamination control:** training instances here are deliberately DISTINCT from the
