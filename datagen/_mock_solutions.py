@@ -59,8 +59,77 @@ def build_link(vpa, name, amount, ref, mcc):
     return f"upi://pay?pa={vpa}&pn={name}&am={amount}&cu=INR"   # no tr/mc, unencoded, am not 2dp
 '''
 
+_IFSC_GOOD = '''
+import re
+def is_valid_ifsc(s):
+    return isinstance(s, str) and bool(re.fullmatch(r"[A-Z]{4}0[A-Z0-9]{6}", s))
+'''
+_IFSC_NAIVE = '''
+import re
+def is_valid_ifsc(s):
+    return bool(re.fullmatch(r"[A-Z]{4}[A-Z0-9]{7}", s or ""))   # ignores reserved 0
+'''
+
+_PAN_GOOD = '''
+import re
+def is_valid_pan(s):
+    if not isinstance(s, str) or not re.fullmatch(r"[A-Z]{5}[0-9]{4}[A-Z]", s):
+        return False
+    return s[3] in "PCHABGJLFT"
+'''
+_PAN_NAIVE = '''
+import re
+def is_valid_pan(s):
+    return bool(re.fullmatch(r"[A-Z]{5}[0-9]{4}[A-Z]", s or ""))  # ignores holder type
+'''
+
+_MOBILE_GOOD = '''
+def is_valid_mobile(s):
+    if not isinstance(s, str): return False
+    s = s.strip().replace(" ", "").replace("-", "")
+    if s.startswith("+91"): s = s[3:]
+    elif s.startswith("0091"): s = s[4:]
+    elif s.startswith("0") and len(s) == 11: s = s[1:]
+    return s.isdigit() and len(s) == 10 and s[0] in "6789"
+'''
+_MOBILE_NAIVE = '''
+import re
+def is_valid_mobile(s):
+    return bool(re.fullmatch(r"[0-9]{10}", s or ""))   # no prefix/start-digit rule
+'''
+
+_INR_GOOD = '''
+import re
+def format_inr(n):
+    s = str(n)
+    if len(s) <= 3: return s
+    h, r = s[:-3], s[-3:]
+    return re.sub(r"(\\d)(?=(\\d\\d)+$)", r"\\1,", h) + "," + r
+'''
+_INR_NAIVE = '''
+def format_inr(n):
+    return f"{n:,}"   # Western thousands grouping, not lakh-crore
+'''
+
+_FY_GOOD = '''
+def indian_fy(date_str):
+    y, m, _ = date_str.split("-")
+    y = int(y); fy = y if int(m) >= 4 else y - 1
+    return f"{fy}-{str(fy+1)[-2:]}"
+'''
+_FY_NAIVE = '''
+def indian_fy(date_str):
+    y = date_str.split("-")[0]               # calendar year, ignores Apr-Mar boundary
+    return f"{y}-{str(int(y)+1)[-2:]}"
+'''
+
 SOLUTIONS = {
     "gst":     {"good": _GST_GOOD,     "naive": _GST_NAIVE},
     "aadhaar": {"good": _AADHAAR_GOOD, "naive": _AADHAAR_NAIVE},
     "upi":     {"good": _UPI_GOOD,     "naive": _UPI_NAIVE},
+    "ifsc":    {"good": _IFSC_GOOD,    "naive": _IFSC_NAIVE},
+    "pan":     {"good": _PAN_GOOD,     "naive": _PAN_NAIVE},
+    "mobile":  {"good": _MOBILE_GOOD,  "naive": _MOBILE_NAIVE},
+    "inr":     {"good": _INR_GOOD,     "naive": _INR_NAIVE},
+    "fy":      {"good": _FY_GOOD,      "naive": _FY_NAIVE},
 }
