@@ -42,6 +42,20 @@ PRESETS = {
         ),
     },
 
+    # --- the real run: ~540M total / ~256M active, REAL DEPTH (bake-off winner:
+    #     deep layers beat recurrence at matched compute), no recurrence ---
+    "sov300": {
+        "name": "Sovereign-300 · 540M total / 256M active, 20 real layers",
+        "blurb": "the real-run config: d768, 20 layers (real depth, recurrence dropped per the bake-off), 8 experts top-2 + shared, ctx 1024. Trains on ~6-8B tokens of code+web+math+India on one A100/H100.",
+        "ckpt": "viz_ckpt_sov300.pt",
+        "kwargs": dict(
+            d_model=768, n_layers=20, n_heads=12,
+            d_nope=96, d_rope=32, d_v=96, kv_latent=384, q_latent=768,
+            n_routed_experts=8, n_active_experts=2, n_shared_experts=1,
+            d_ff=1024, max_seq=1024, recurrence=1,
+        ),
+    },
+
     # --- experiment presets (aggressive arch bets) ---
     "recur3": {
         "name": "Recurrent-depth · 4 layers looped 3x",
