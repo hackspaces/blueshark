@@ -94,6 +94,23 @@ Things to adopt (parked):
 - **MTP / speculative decoding** — multi-token-prediction draft for ~1.2-1.3×
   lossless speedup (Gemma 4 ships one). Inference-speed lever, not training-time.
 
+## Architecture validation — bake-off + scaling (2026-06-29)
+
+Ran the matched-compute bake-off + multi-size scaling ladders on a 4090, read with
+the LEARNING.md gauges. Conclusions (now evidence-backed, not hunches):
+
+- **Real depth WINS (confirmed).** A single-size bake-off flipped between runs
+  (deep8 best one run, worst the next — single points are noisy + sensitive to the
+  matched-compute anchor). The **scaling ladder resolved it**: deep8 is lower at
+  every matched-compute point (3.20→2.38) and descends fastest vs finegrained
+  (3.39→2.79) and proof (3.40→2.83). Real depth is the confident call → `sov300`.
+- **Fine-grained MoE: small, consistent edge** over the plain baseline. Optional
+  bump for the real config; mild, so not chased hard.
+- **QK-norm: neutral** (proof_qk 3.9145 vs proof 3.9212 — noise). Not adopted.
+- **Recurrence: lost** at matched compute (worst), already dropped.
+- **Lesson:** trust the scaling slope, not a single-size loss; the fitted exponent
+  needs 4-5 sizes (3-point fit's floor-sweep overfits — read the raw curve).
+
 <!-- template for the next paper:
 ## NAME — (org, arXiv:XXXX)
 **What it is.** ...
