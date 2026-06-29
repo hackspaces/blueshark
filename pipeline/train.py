@@ -220,8 +220,9 @@ def main():
 
         if step > 0 and step % args.eval_every == 0:
             val = evaluate(model, data, args.batch, args.seq, device, rng)
-            log.log(f"  >>> eval step {step}: val_loss {val:.4f}  (best {best_val:.4f})")
-            log.metric(step, {"val_loss": round(val, 4)})
+            gap = val - (ema if ema is not None else val)   # generalization gap: >0 and growing = overfitting
+            log.log(f"  >>> eval step {step}: val_loss {val:.4f}  gap {gap:+.3f}  (best {best_val:.4f})")
+            log.metric(step, {"val_loss": round(val, 4), "gen_gap": round(gap, 4)})
             if val < best_val:
                 best_val = val
                 torch.save({"step": step, "model": model.state_dict(), "opt": opt.state_dict(),
