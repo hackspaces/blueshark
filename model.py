@@ -24,6 +24,7 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.utils.checkpoint
 
 # Reserved agentic tokens. The tokenizer maps these to dedicated ids so SFT/RL
 # has an unambiguous surface for thinking and tool turns (the architecture is
@@ -55,6 +56,9 @@ class Config:
     recurrence: int = 1   # weight-tied recursion: run the block stack this many
                           # times for recurrence x n_layers EFFECTIVE depth at no
                           # extra params (TRM-style recurrent depth). 1 = standard.
+    # arch tweaks (opt-in; screen each via bakeoff.py before committing — LEARNING.md)
+    qk_norm: bool = False        # RMSNorm the per-head content q/k before attention (stability)
+    grad_checkpoint: bool = False  # recompute activations in backward (memory: fit bigger/longer)
 
     @property
     def qk_head_dim(self) -> int:
@@ -109,6 +113,12 @@ class MLA(nn.Module):
         self.kv_b = nn.Linear(cfg.kv_latent, H * (cfg.d_nope + cfg.d_v), bias=False)
         self.k_rope = nn.Linear(cfg.d_model, cfg.d_rope, bias=False)  # shared across heads
 
+        # QK-norm (opt-in): RMSNorm the content (no-position) part of q,k per head,
+        # leaving the decoupled RoPE slice untouched. Conditions attention scores.
+        if cfg.qk_norm:
+            self.q_nope_norm = RMSNorm(cfg.d_nope)
+            self.k_nope_norm = RMSNorm(cfg.d_nope)
+
         self.o = nn.Linear(H * cfg.d_v, cfg.d_model, bias=False)
 
     def forward(self, x, cos, sin):
@@ -123,6 +133,10 @@ class MLA(nn.Module):
         kv = kv.view(B, T, H, cfg.d_nope + cfg.d_v).transpose(1, 2)  # (B,H,T,nope+v)
         k_nope, v = kv.split([cfg.d_nope, cfg.d_v], dim=-1)
         k_rope = self.k_rope(x).view(B, T, 1, cfg.d_rope).transpose(1, 2)  # (B,1,T,rope)
+
+        if cfg.qk_norm:
+            q_nope = self.q_nope_norm(q_nope)
+            k_nope = self.k_nope_norm(k_nope)
 
         q_rope = apply_rope(q_rope, cos, sin)
         k_rope = apply_rope(k_rope, cos, sin).expand(B, H, T, cfg.d_rope)
@@ -238,9 +252,13 @@ class Model(nn.Module):
 
     def forward(self, idx, targets=None):
         x = self.embed(idx)
+        ckpt = self.cfg.grad_checkpoint and self.training
         for _ in range(self.cfg.recurrence):      # weight-tied recurrent depth
             for blk in self.blocks:
-                x = blk(x, self.cos, self.sin)
+                if ckpt:                          # recompute activations in backward (saves memory)
+                    x = torch.utils.checkpoint.checkpoint(blk, x, self.cos, self.sin, use_reentrant=False)
+                else:
+                    x = blk(x, self.cos, self.sin)
         logits = self.lm_head(self.norm(x))
         loss = None
         if targets is not None:

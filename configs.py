@@ -53,10 +53,22 @@ PRESETS = {
             d_nope=96, d_rope=32, d_v=96, kv_latent=384, q_latent=768,
             n_routed_experts=8, n_active_experts=2, n_shared_experts=1,
             d_ff=1024, max_seq=1024, recurrence=1,
+            grad_checkpoint=True,   # 540M won't fit otherwise; same math, less memory
         ),
     },
 
     # --- experiment presets (aggressive arch bets) ---
+    "proof_qk": {
+        "name": "Proof + QK-norm (screening variant)",
+        "blurb": "the proof baseline with QK-norm on — bake off vs proof to measure if QK-norm lowers loss / smooths gnorm before adopting it.",
+        "ckpt": "viz_ckpt_proof_qk.pt",
+        "kwargs": dict(
+            d_model=256, n_layers=4, n_heads=4,
+            d_nope=32, d_rope=16, d_v=32, kv_latent=128, q_latent=256,
+            n_routed_experts=8, n_active_experts=2, n_shared_experts=1,
+            d_ff=512, max_seq=256, qk_norm=True,
+        ),
+    },
     "recur3": {
         "name": "Recurrent-depth · 4 layers looped 3x",
         "blurb": "weight-tied recursion: 4 layers run 3x = 12 effective layers at the SAME params, seq 512. TRM-style depth-via-recursion bet.",
