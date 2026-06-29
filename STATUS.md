@@ -1,6 +1,23 @@
 # STATUS — where we are, what's next
 
-Last updated: 2026-06-28. Read this first when resuming (incl. from Claude Code web).
+Last updated: 2026-06-29. Read this first when resuming (incl. from Claude Code web).
+
+## RESUME HERE — the real run is ready to launch (2026-06-29)
+Architecture is **validated by measurement** and the data + recipe are built. The
+only thing left is to rent a bigger GPU and run it. Cost: **~$50–60** (GPU only;
+data is free). Runbook:
+1. Rent an **A100 80GB or H100**, **~150GB disk**, PyTorch template, SSH on. (4090 is too small for sov300.)
+2. On HF: accept **The Stack** dataset terms; have the `HF_TOKEN` ready (export it; rotate after).
+3. `git clone` repo, `pip install --break-system-packages datasets tokenizers pyarrow`, copy `data/india/india_text.txt` to the box.
+4. `export HF_TOKEN=... && python pipeline/assemble_corpus.py --name sov_pretrain`  (~5-7 hrs: download+tokenize+pack ~6.5B tokens, 48k Indic tokenizer)
+5. `python pipeline/train.py --data sov_pretrain --config sov300 --out runs/sov300 --steps <~800k tok-budget> --batch <fit> --seq 1024 --lr 1.5e-3 --eval-every 1000 --save-every 1000`  (~20-24 hrs A100)
+6. `python pipeline/diagnose.py runs/sov300` (read gauges), exfil best.pt (fp16) → release `sov300-v1` → viewer.
+
+**Arch decisions (locked, evidence-backed — see EXPERIMENTS.md):** real depth WINS
+(sov300 = 20 real layers); recurrence LOST at matched compute (dropped); QK-norm
+NEUTRAL (dropped); fine-grained MoE mild edge (optional). grad_checkpoint ON for sov300.
+Still open for the model itself: correctness needs RL (verifiable rewards); the SFT
+uses the `<plan>`-gated agentic format fix; add Indic-SCRIPT source (Sangraha) for real Hindi/Tamil.
 
 ## Latest: coherence ACHIEVED + SFT diagnosis (2026-06-28)
 Trained the full pretrain→SFT pipeline on a rented RTX 4090 (~$6). The `coherent`
