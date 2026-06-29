@@ -1,6 +1,18 @@
 # STATUS — where we are, what's next
 
-Last updated: 2026-06-27. Read this first when resuming (incl. from Claude Code web).
+Last updated: 2026-06-28. Read this first when resuming (incl. from Claude Code web).
+
+## Latest: coherence ACHIEVED + SFT diagnosis (2026-06-28)
+Trained the full pretrain→SFT pipeline on a rented RTX 4090 (~$6). The `coherent`
+config (132M, recurrence 2, ctx 1024, 16k Python vocab) pretrained on ~150M tokens
+of codeparrot Python → **val 1.33, writes idiomatic Python (real coherence)**; then
+SFT on Python SWE-agent traces → val 1.42, does the reason→tool-command loop. Both
+in GitHub release **`coherent-v1`**; final model in the viewer's `coherent` preset.
+
+**Probed the model → tweak list:**
+- It learned the loop *internals* perfectly (`</think>`→`<tool_call>` P=1.0) but **not how to ENTER** the loop (issue→`<think>` P=0.0001) — entry is ~15× rarer + follows varied issue text. **FIX (done, in `parse_swe_trajectories.py`):** gate the turn behind a fixed `<plan>` marker → `{issue}<plan><think>…`, a constant→constant transition that's learnable AND gates agentic mode (kills style-bleed into plain code). Re-run SFT with the new parser to get it.
+- **Inference convention:** agentic turn = prompt with `{issue}<plan>` (or `<think>`); plain code = no marker. (Verified: prompting into the turn makes the loop + tokens fire correctly on the current model.)
+- **Still open (need GPU/scale):** correctness is a capability gap (greedy is confidently wrong) → needs **RL with verifiable rewards** (indeval/SWE-Gym). No Indic/multilingual (Python-only vocab) → needs **Indic data + 32-64k Indic vocab** in the next pretrain. Some memorization of the narrow corpus → more/diverse data.
 
 ## What blueshark is
 Reference architecture for a sovereign agentic coding model: fine-grained MoE +

@@ -73,8 +73,15 @@ def parse_trajectory(traj):
 def build_segments(issue, turns):
     """Return [[text, trainable], ...]. trainable=1 on the model's own turns
     (think + tool_call), 0 on context the model should NOT learn to produce
-    (the issue and the environment's tool_result observations)."""
-    segs = [[issue + "\n", 0]]
+    (the issue and the environment's tool_result observations).
+
+    The issue is followed by a FIXED entry marker `<plan>` (prompt-side, mask 0):
+    it gives the model a constant boundary to learn 'after <plan>, emit <think>'
+    (the varied issue text alone was too rare a cue), and it GATES the agentic
+    loop — plain prompts without <plan> stay in code-completion mode instead of
+    bleeding agent artifacts. At inference, prompt with `{issue}<plan>` for an
+    agentic turn; omit it for plain code completion."""
+    segs = [[issue.strip() + "\n", 0], [PLAN, 0]]
     for t in turns:
         if t["think"]:
             segs.append([f"{THINK}{t['think']}{THINK_END}", 1])
